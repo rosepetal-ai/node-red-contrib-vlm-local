@@ -23,6 +23,7 @@ turns an image plus a prompt, or a list of tags, into detections.
 
 | Path | Contents |
 |---|---|
+| `catalog.json` | The offered models: pinned files (HF commit + SHA-256), coordinate format, parameters, measured VRAM. The first entry is the default |
 | `lib/result-conversion.js` | `expandResultFormats`: every box format derived from whichever one a result has |
 | `lib/image-input.js` | `toJpegBase64`: encoded Buffer or raw bitmap → JPEG base64 |
 | `lib/debug-image.js` | `renderDebugImage`: the frame with the result drawn on it |

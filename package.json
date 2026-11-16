@@ -31,6 +31,7 @@
   },
   "files": [
     "lib/",
+    "catalog.json",
     "LICENSE",
     "README.md"
   ],
