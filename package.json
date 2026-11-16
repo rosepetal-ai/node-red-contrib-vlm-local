@@ -1,0 +1,40 @@
+{
+  "name": "@rosepetal/node-red-contrib-vlm-local",
+  "version": "0.1.0",
+  "description": "Node-RED node for open vision-language models running on the device with llama.cpp: image + prompt or tags -> detections",
+  "keywords": [
+    "node-red",
+    "vlm",
+    "vision",
+    "llama.cpp",
+    "object-detection",
+    "inference"
+  ],
+  "author": "Rosepetal SL (https://www.rosepetal.ai)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosepetal-ai/node-red-contrib-vlm-local.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rosepetal-ai/node-red-contrib-vlm-local/issues"
+  },
+  "homepage": "https://github.com/rosepetal-ai/node-red-contrib-vlm-local#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "sharp": "^0.33.4"
+  },
+  "files": [
+    "lib/",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
