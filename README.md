@@ -14,8 +14,9 @@ so a flow can swap one for the other.
   SHA-256 verified. No credentials on the device.
 - **One container per node**, `nodered-vlm-local-<node id>`, on a
   Docker-assigned `127.0.0.1` port, removed when the node is deleted.
-- **VRAM release**: keep the model loaded, or release it after each inference /
-  after N idle seconds (llama-server `--sleep-idle-seconds`; ≈3 s to wake).
+- **Unload**: keep the model loaded, or stop its container after each inference /
+  after N idle seconds (N from the panel, `msg`, `flow` or `global`); ≈3 s to load again.
+- **Delete models** from the panel; refused while a node or container uses them.
 - **Models are data**: `catalog.json` lists each model's files, coordinate
   format, parameters and measured VRAM. A device can add or override entries in
   `/opt/storage/models/vlm/catalog.json` without a release.
@@ -43,6 +44,7 @@ Node-RED runs with `network_mode: host`). Weights go to
 | `lib/catalog.js` | Packaged + device catalog, merged by id and validated |
 | `lib/weights.js` | Resumable HF downloads, SHA-256 verification, one download per model |
 | `lib/runtime.js` | The llama-server container: pull, start/reuse, health, removal |
+| `lib/unloader.js` | Unload after N idle seconds, load again on the next request |
 | `lib/llama.js` | One chat-completions request with the image and the JSON schema |
 | `lib/detect.js` | Prompt, schema and parser, ported from the production labeler |
 | `lib/gpu.js` | GPU name and memory from `nvidia-smi` |

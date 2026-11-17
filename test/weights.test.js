@@ -5,7 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
-const { ensureWeights, weightsStatus } = require('../lib/weights');
+const { ensureWeights, weightsStatus, deleteWeights } = require('../lib/weights');
 
 const blob = (n, seed) => Buffer.from(Array.from({ length: n }, (_, i) => (i * 31 + seed) % 256));
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
@@ -15,7 +15,7 @@ const REV = 'a'.repeat(40);
 
 function entry(overrides = {}) {
     return {
-        id: 'fake',
+        id: 'fake', name: 'Fake',
         files: {
             model: { repo: 'org/fake', revision: REV, path: 'm.gguf', bytes: MODEL.length, sha256: sha(MODEL) },
             mmproj: { repo: 'org/fake', revision: REV, path: 'mmproj.gguf', bytes: MMPROJ.length, sha256: sha(MMPROJ) },
@@ -121,5 +121,20 @@ test('two callers for the same model share one download', async () => {
         assert.equal(a, b);
         await a;
         assert.equal(hub.log.filter((l) => l.url.endsWith('m.gguf')).length, 1);
+    } finally { hub.close(); }
+});
+
+test('deleteWeights removes the model directory; refuses while downloading', async () => {
+    const hub = await fakeHub();
+    const root = tmpRoot();
+    try {
+        const pending = ensureWeights(entry(), { root, baseUrl: hub.baseUrl });
+        assert.throws(() => deleteWeights(entry(), root), /is downloading/);
+        await pending;
+        assert.equal(weightsStatus(entry(), root).diskBytes, MODEL.length + MMPROJ.length);
+        deleteWeights(entry(), root);
+        assert.ok(!fs.existsSync(path.join(root, 'fake')));
+        assert.equal(weightsStatus(entry(), root).diskBytes, 0);
+        assert.equal(weightsStatus(entry(), root).installed, false);
     } finally { hub.close(); }
 });

@@ -22,8 +22,9 @@
             parametersType: { value: 'json' },
             output: { value: 'inference' },
             timeoutMs: { value: 120000, validate: RED.validators.number() },
-            releaseVram: { value: 'never' },
-            idleSeconds: { value: 60, validate: function (v) { return this.releaseVram !== 'idle' || v >= 1; } },
+            unload: { value: 'never' },
+            unloadSeconds: { value: '60' },
+            unloadSecondsType: { value: 'num' },
             debugShowImage: { value: false },
             debugInterval: { value: 1, validate: function (v) { return !this.debugShowImage || v > 0; } },
             debugWidth: { value: DEFAULT_IMAGE_WIDTH, validate: function (v) { return !this.debugShowImage || v > 0; } },
@@ -49,6 +50,7 @@
             });
             $('#node-input-output').typedInput({ type: 'msg', types: ['msg'] });
             $('#node-input-parameters').typedInput({ default: 'json', types: ['json', 'msg', 'flow', 'global'], typeField: $('#node-input-parametersType') });
+            $('#node-input-unloadSeconds').typedInput({ default: 'num', types: ['num', 'msg', 'flow', 'global'], typeField: $('#node-input-unloadSecondsType') });
             buildTagList(node);
             buildFindBy(node);
 
@@ -60,53 +62,82 @@
                 return m.name + ' · ≈' + GB(m.vramMb) + ' VRAM · ' + state;
             }
 
+            function selected() {
+                return info && info.models.filter(function (x) { return x.id === $('#node-input-model').val(); })[0];
+            }
+
             function vramLine() {
                 var $line = $('#vlm-local-vram');
-                var m = info && info.models.filter(function (x) { return x.id === $('#node-input-model').val(); })[0];
+                var m = selected();
+                $('#vlm-local-delete').toggle(Boolean(m && m.diskBytes));
                 if (!m) { $line.text(''); return; }
                 var license = m.license ? ' · License: ' + m.license.id : '';
                 if (!info.gpu) {
                     $line.css('color', '#c00').text('No NVIDIA GPU found on this device: this node needs one.' + license);
                     return;
                 }
-                // This node's own server, if running, is already in "used": count it as free for itself.
-                var others = info.servers.filter(function (s) { return s.nodeId !== node.id; });
-                var own = info.servers.filter(function (s) { return s.nodeId === node.id; })[0];
+                // Only loaded models hold VRAM. This node's own, if loaded, is already in "used".
+                var running = info.servers.filter(function (s) { return s.running; });
+                var isOwn = function (s) { return s.nodeId === node.id && s.instance === info.instance; };
+                var others = running.filter(function (s) { return !isOwn(s); });
+                var own = running.filter(isOwn)[0];
                 var free = info.gpu.freeMB + (own ? own.vramMb : 0);
                 var text = 'Needs ≈' + GB(m.vramMb) + ' · GPU: ' + info.gpu.name + ', ' + GB(info.gpu.totalMB)
                     + ' (' + GB(free) + ' free)';
-                if ($('#node-input-releaseVram').val() !== 'never') text += ' · ≈0.1 GB while idle';
+                if ($('#node-input-unload').val() !== 'never') text += ' · 0 GB while unloaded';
                 if (others.length) {
                     var sum = others.reduce(function (a, s) { return a + s.vramMb; }, 0);
-                    text += ' · ' + others.length + ' other VLM local node(s) use up to ≈' + GB(sum);
+                    text += ' · ' + others.length + ' other loaded VLM local model(s) use ≈' + GB(sum);
                 }
                 $line.css('color', m.vramMb > free ? '#c00' : '#888').text(text + license);
             }
 
-            $.getJSON('vlm-local-inferencer/info').done(function (data) {
-                info = data;
-                var $model = $('#node-input-model').empty();
-                data.models.forEach(function (m) {
-                    // Deprecated models stay selectable only for the node already using them.
-                    if (m.deprecated && m.id !== node.model) return;
-                    $model.append($('<option>').val(m.id).text(modelLabel(m) + (m.deprecated ? ' (deprecated)' : '')));
+            function loadInfo() {
+                var current = $('#node-input-model').val() || node.model;
+                $.getJSON('vlm-local-inferencer/info').done(function (data) {
+                    info = data;
+                    var $model = $('#node-input-model').empty();
+                    data.models.forEach(function (m) {
+                        // Deprecated models stay selectable only for the node already using them.
+                        if (m.deprecated && m.id !== node.model) return;
+                        $model.append($('<option>').val(m.id).text(modelLabel(m) + (m.deprecated ? ' (deprecated)' : '')));
+                    });
+                    $model.val(current || (data.models[0] && data.models[0].id));
+                    vramLine();
+                }).fail(function (xhr) {
+                    var reason = (xhr.responseJSON && xhr.responseJSON.error) || 'request failed';
+                    $('#vlm-local-vram').css('color', '#c00').text('Cannot read the model catalog: ' + reason);
+                    if (node.model) $('#node-input-model').append($('<option>').val(node.model).text(node.model));
                 });
-                $model.val(node.model || (data.models[0] && data.models[0].id));
-                vramLine();
-            }).fail(function (xhr) {
-                var reason = (xhr.responseJSON && xhr.responseJSON.error) || 'request failed';
-                $('#vlm-local-vram').css('color', '#c00').text('Cannot read the model catalog: ' + reason);
-                if (node.model) $('#node-input-model').append($('<option>').val(node.model).text(node.model));
-            });
+            }
+            loadInfo();
             $('#node-input-model').on('change', vramLine);
 
-            // ---- Release VRAM ----
-            var applyRelease = function () {
-                $('#vlm-local-idle-row').toggle($('#node-input-releaseVram').val() === 'idle');
+            // ---- Delete the selected model's files ----
+            $('#vlm-local-delete').on('click', function (e) {
+                e.preventDefault();
+                var m = selected();
+                if (!m) return;
+                var size = GB(m.diskBytes / 1024 / 1024);
+                if (!confirm('Delete the files of ' + m.name + ' (' + size + ') from this device?\n\n'
+                    + 'A node that uses it downloads them again on its next deploy.')) return;
+                $.ajax({ url: 'vlm-local-inferencer/models/' + encodeURIComponent(m.id), type: 'DELETE' })
+                    .done(function () {
+                        RED.notify(m.name + ': ' + size + ' deleted', 'success');
+                        loadInfo();
+                    })
+                    .fail(function (xhr) {
+                        RED.notify((xhr.responseJSON && xhr.responseJSON.error) || 'Delete failed', 'error');
+                    });
+            });
+
+            // ---- Unload ----
+            var applyUnload = function () {
+                $('#vlm-local-unload-seconds-row').toggle($('#node-input-unload').val() === 'idle');
                 vramLine();
             };
-            $('#node-input-releaseVram').on('change', applyRelease);
-            applyRelease();
+            $('#node-input-unload').on('change', applyUnload);
+            applyUnload();
 
             // ---- Debug image ----
             var applyDebug = function () {
@@ -256,23 +287,26 @@
 
     <div class="form-row">
         <label for="node-input-model"><i class="fa fa-cube"></i> Model</label>
-        <select id="node-input-model" style="width:70%"></select>
+        <select id="node-input-model" style="width:calc(70% - 40px)"></select>
+        <button id="vlm-local-delete" class="red-ui-button" style="display:none; margin-left:4px;"
+                title="Delete this model's files from the device"><i class="fa fa-trash"></i></button>
     </div>
     <div class="form-row" style="margin-top:-8px;">
         <label>&nbsp;</label><span id="vlm-local-vram" style="color:#888; display:inline-block; width:70%;">loading models…</span>
     </div>
 
     <div class="form-row">
-        <label for="node-input-releaseVram"><i class="fa fa-moon-o"></i> VRAM</label>
-        <select id="node-input-releaseVram" style="width:70%">
-            <option value="never">Keep the model loaded</option>
-            <option value="after">Release after each inference</option>
-            <option value="idle">Release after N seconds without use</option>
+        <label for="node-input-unload"><i class="fa fa-eject"></i> Unload</label>
+        <select id="node-input-unload" style="width:70%">
+            <option value="never">Never — keep the model in VRAM</option>
+            <option value="after">After each inference</option>
+            <option value="idle">After N seconds without use</option>
         </select>
     </div>
-    <div class="form-row" id="vlm-local-idle-row">
-        <label for="node-input-idleSeconds">&nbsp;</label>
-        <input type="number" id="node-input-idleSeconds" min="1" step="1" style="width:80px"> seconds
+    <div class="form-row" id="vlm-local-unload-seconds-row">
+        <label for="node-input-unloadSeconds">N (seconds)</label>
+        <input type="text" id="node-input-unloadSeconds" style="width:70%">
+        <input type="hidden" id="node-input-unloadSecondsType">
     </div>
 
     <hr>
@@ -386,9 +420,9 @@
         <code>cwh</code>, <code>2points</code> — normalized 0–1. The confidence is what the
         model writes (usually 0.95–0.99), not a calibrated score.</dd>
         <dt>performance <span class="property-type">object</span></dt>
-        <dd>Keyed by the node's name: <code>encodeMs</code>, <code>requestMs</code>,
-        <code>inferenceMs</code> (the server's own prompt + generation time),
-        <code>wakeMs</code> (time spent reloading a released model, else 0) and <code>totalMs</code>.</dd>
+        <dd>Keyed by the node's name: <code>encodeMs</code>, <code>wakeMs</code> (time spent
+        loading an unloaded model, else 0), <code>requestMs</code>, <code>inferenceMs</code>
+        (the server's own prompt + generation time) and <code>totalMs</code>.</dd>
     </dl>
 
     <h3>Speed</h3>
@@ -397,12 +431,18 @@
     frame when something happens, not for every frame of a fast line. The default
     <b>Timeout</b> is 120 s.</p>
 
-    <h3>VRAM</h3>
-    <p><b>Keep the model loaded</b> is the default. <b>Release after each inference</b> and
-    <b>Release after N seconds without use</b> unload it from the GPU (≈130 MB stay), and the next message
-    loads it again, which adds ≈3 s. The status turns grey, "Sleeping (VRAM released)",
-    once it has. The ≈3 s assume the weights are still in the OS file cache; after a
-    reboot the first wake reads them from disk.</p>
+    <h3>Unload</h3>
+    <p><b>Never</b> keeps the model in VRAM. <b>After each inference</b> and <b>After N
+    seconds without use</b> stop the model's container, which frees all of its VRAM; the
+    next message starts it again, adding ≈3 s (reported as <code>wakeMs</code>). The
+    status turns grey, "Unloaded (VRAM released)".</p>
+    <p><b>N</b> can be a number or come from <code>msg</code>, <code>flow</code> or
+    <code>global</code>; it is read on every message, and the last message decides how
+    long the model stays loaded after it. A missing or negative N fails that message.
+    With N from <code>msg</code>, the model stays loaded after deploy until the first
+    message arrives; otherwise the countdown starts at deploy.</p>
+    <p>The ≈3 s assume the weights are still in the OS file cache; after a reboot the
+    first load reads them from disk.</p>
 
     <h3>Parameters</h3>
     <p>Optional sampling overrides as JSON: <code>max_tokens</code> (default 4096 —
@@ -415,4 +455,7 @@
     entries in <code>/opt/storage/models/vlm/catalog.json</code> (same format, matched
     by <code>id</code>) without a new release. The line under the model compares the
     measured VRAM it needs with the GPU's free memory, and turns red if it does not fit.</p>
+    <p>The <i class="fa fa-trash"></i> button next to the model deletes its files from the
+    device. It is refused while a deployed node or a container still uses that model:
+    change or delete those nodes and deploy first. Nothing is ever deleted automatically.</p>
 </script>
