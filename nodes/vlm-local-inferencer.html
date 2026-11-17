@@ -62,14 +62,14 @@
                 return m.name + ' · ≈' + GB(m.vramMb) + ' VRAM · ' + state;
             }
 
-            function selected() {
-                return info && info.models.filter(function (x) { return x.id === $('#node-input-model').val(); })[0];
+            function byId(id) {
+                return info && info.models.filter(function (x) { return x.id === id; })[0];
             }
+            function selected() { return byId($('#node-input-model').val()); }
 
             function vramLine() {
                 var $line = $('#vlm-local-vram');
                 var m = selected();
-                $('#vlm-local-delete').toggle(Boolean(m && m.diskBytes));
                 if (!m) { $line.text(''); return; }
                 var license = m.license ? ' · License: ' + m.license.id : '';
                 if (!info.gpu) {
@@ -92,32 +92,18 @@
                 $line.css('color', m.vramMb > free ? '#c00' : '#888').text(text + license);
             }
 
-            function loadInfo() {
-                var current = $('#node-input-model').val() || node.model;
-                $.getJSON('vlm-local-inferencer/info').done(function (data) {
-                    info = data;
-                    var $model = $('#node-input-model').empty();
-                    data.models.forEach(function (m) {
-                        // Deprecated models stay selectable only for the node already using them.
-                        if (m.deprecated && m.id !== node.model) return;
-                        $model.append($('<option>').val(m.id).text(modelLabel(m) + (m.deprecated ? ' (deprecated)' : '')));
-                    });
-                    $model.val(current || (data.models[0] && data.models[0].id));
-                    vramLine();
-                }).fail(function (xhr) {
-                    var reason = (xhr.responseJSON && xhr.responseJSON.error) || 'request failed';
-                    $('#vlm-local-vram').css('color', '#c00').text('Cannot read the model catalog: ' + reason);
-                    if (node.model) $('#node-input-model').append($('<option>').val(node.model).text(node.model));
-                });
-            }
-            loadInfo();
-            $('#node-input-model').on('change', vramLine);
+            // ---- Model dropdown: a custom list, since a native <select> cannot hold a delete button ----
+            var $menu = $('#vlm-local-model-menu');
+            var $button = $('#vlm-local-model-button');
 
-            // ---- Delete the selected model's files ----
-            $('#vlm-local-delete').on('click', function (e) {
-                e.preventDefault();
-                var m = selected();
-                if (!m) return;
+            function choose(id) {
+                $('#node-input-model').val(id);
+                var m = byId(id);
+                $button.find('span').text(m ? modelLabel(m) + (m.deprecated ? ' (deprecated)' : '') : (id || 'select a model'));
+                vramLine();
+            }
+
+            function deleteModel(m) {
                 var size = GB(m.diskBytes / 1024 / 1024);
                 if (!confirm('Delete the files of ' + m.name + ' (' + size + ') from this device?\n\n'
                     + 'A node that uses it downloads them again on its next deploy.')) return;
@@ -129,7 +115,54 @@
                     .fail(function (xhr) {
                         RED.notify((xhr.responseJSON && xhr.responseJSON.error) || 'Delete failed', 'error');
                     });
+            }
+
+            function renderMenu() {
+                $menu.empty();
+                info.models.forEach(function (m) {
+                    // Deprecated models stay selectable only for the node already using them.
+                    if (m.deprecated && m.id !== node.model) return;
+                    var $row = $('<li>', { class: 'vlm-local-model-option', 'data-id': m.id })
+                        .css({ display: 'flex', alignItems: 'center', padding: '6px 8px', cursor: 'pointer' })
+                        .hover(function () { $(this).css('background', 'var(--red-ui-list-item-background-hover, #eee)'); },
+                            function () { $(this).css('background', ''); })
+                        .on('click', function () { choose(m.id); $menu.hide(); })
+                        .append($('<span>').css({ flex: '1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' })
+                            .text(modelLabel(m) + (m.deprecated ? ' (deprecated)' : '')));
+                    if (m.diskBytes) {
+                        $('<button>', { class: 'red-ui-button red-ui-button-small vlm-local-model-delete',
+                            title: 'Delete ' + m.name + ' files (' + GB(m.diskBytes / 1024 / 1024) + ') from this device' })
+                            .css({ marginLeft: '8px' })
+                            .append('<i class="fa fa-trash"></i>')
+                            .on('click', function (e) { e.stopPropagation(); $menu.hide(); deleteModel(m); })
+                            .appendTo($row);
+                    }
+                    $row.appendTo($menu);
+                });
+            }
+
+            function loadInfo() {
+                var current = $('#node-input-model').val() || node.model;
+                $.getJSON('vlm-local-inferencer/info').done(function (data) {
+                    info = data;
+                    renderMenu();
+                    choose(current || (data.models[0] && data.models[0].id));
+                }).fail(function (xhr) {
+                    var reason = (xhr.responseJSON && xhr.responseJSON.error) || 'request failed';
+                    $('#vlm-local-vram').css('color', '#c00').text('Cannot read the model catalog: ' + reason);
+                    choose(node.model);
+                });
+            }
+
+            $button.on('click', function (e) {
+                e.preventDefault();
+                if (info) $menu.toggle();
             });
+            // Close when clicking anywhere else in the dialog.
+            $(document).on('mousedown.vlm-local-model', function (e) {
+                if (!$(e.target).closest('#vlm-local-model-menu, #vlm-local-model-button').length) $menu.hide();
+            });
+            loadInfo();
 
             // ---- Unload ----
             var applyUnload = function () {
@@ -148,6 +181,10 @@
         },
         oneditsave: function () {
             if ($('#node-input-tagsType').val() === 'list') syncTagList();
+            $(document).off('mousedown.vlm-local-model');
+        },
+        oneditcancel: function () {
+            $(document).off('mousedown.vlm-local-model');
         }
     });
 
@@ -287,9 +324,18 @@
 
     <div class="form-row">
         <label for="node-input-model"><i class="fa fa-cube"></i> Model</label>
-        <select id="node-input-model" style="width:calc(70% - 40px)"></select>
-        <button id="vlm-local-delete" class="red-ui-button" style="display:none; margin-left:4px;"
-                title="Delete this model's files from the device"><i class="fa fa-trash"></i></button>
+        <input type="hidden" id="node-input-model">
+        <div style="display:inline-block; position:relative; width:70%; vertical-align:middle;">
+            <button id="vlm-local-model-button" class="red-ui-button" type="button"
+                    style="width:100%; text-align:left; display:flex; align-items:center;">
+                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">loading models…</span>
+                <i class="fa fa-caret-down" style="margin-left:6px;"></i>
+            </button>
+            <ul id="vlm-local-model-menu" style="display:none; position:absolute; z-index:100; left:0; right:0;
+                margin:2px 0 0; padding:0; list-style:none; background:var(--red-ui-form-input-background, #fff);
+                border:1px solid var(--red-ui-form-input-border-color, #ccc); border-radius:4px;
+                box-shadow:0 2px 6px rgba(0,0,0,0.2);"></ul>
+        </div>
     </div>
     <div class="form-row" style="margin-top:-8px;">
         <label>&nbsp;</label><span id="vlm-local-vram" style="color:#888; display:inline-block; width:70%;">loading models…</span>
@@ -455,7 +501,7 @@
     entries in <code>/opt/storage/models/vlm/catalog.json</code> (same format, matched
     by <code>id</code>) without a new release. The line under the model compares the
     measured VRAM it needs with the GPU's free memory, and turns red if it does not fit.</p>
-    <p>The <i class="fa fa-trash"></i> button next to the model deletes its files from the
+    <p>The <i class="fa fa-trash"></i> button on a model in the list deletes its files from the
     device. It is refused while a deployed node or a container still uses that model:
     change or delete those nodes and deploy first. Nothing is ever deleted automatically.</p>
 </script>
