@@ -27,10 +27,20 @@
     "test": "node --test test/"
   },
   "dependencies": {
+    "dockerode": "^4.0.12",
     "sharp": "^0.33.4"
+  },
+  "node-red": {
+    "version": ">=3.0.0",
+    "nodes": {
+      "vlm-local-inferencer": "nodes/vlm-local-inferencer.js"
+    }
   },
   "files": [
     "lib/",
+    "nodes/",
+    "resources/",
+    "catalog.json",
     "LICENSE",
     "README.md"
   ],
