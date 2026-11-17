@@ -1,0 +1,640 @@
+{
+ "source": "llm_labeler.py",
+ "prompts": [
+  {
+   "mode": "tags",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "expected": "You are a precise object detector. Find every distinct instance of each of the following labels in the image:\n- \"cap\": the capsule on the neck, not the neck\n- \"front label\"\n- \"barcode\"\n\nOnly include instances that are clearly visible. If there are none, return an empty list.\n\nReturn ONLY a JSON object (no prose, no markdown) of the form {\"detections\": [{\"label\": <label>, \"box\": [x1, y1, x2, y2], \"confidence\": <number between 0 and 1>}]}, where \"label\" is EXACTLY one of \"cap\", \"front label\", \"barcode\" — do not invent labels.\nCoordinates are [x1, y1, x2, y2], integers normalized to 0..1000 regardless of the image's pixel size.\n[x1,y1] is the top-left corner and [x2,y2] the bottom-right; the origin (0,0) is the top-left of the image. Each box must enclose the ENTIRE object — from its topmost to bottommost and leftmost to rightmost visible pixel — without cropping any part."
+  },
+  {
+   "mode": "prompt",
+   "prompt": "  every screw head \n",
+   "coord_format": "grid_xyxy",
+   "expected": "You are a precise object detector. Find every distinct instance of what the user asks for:\nevery screw head\n\nOnly include instances that are clearly visible. If there are none, return an empty list.\n\nReturn ONLY a JSON object (no prose, no markdown) of the form {\"detections\": [{\"label\": <short label>, \"box\": [x1, y1, x2, y2], \"confidence\": <number between 0 and 1>}]}, where \"label\" names what you found in a word or two.\nCoordinates are [x1, y1, x2, y2], integers normalized to 0..1000 regardless of the image's pixel size.\n[x1,y1] is the top-left corner and [x2,y2] the bottom-right; the origin (0,0) is the top-left of the image. Each box must enclose the ENTIRE object — from its topmost to bottommost and leftmost to rightmost visible pixel — without cropping any part."
+  },
+  {
+   "mode": "tags",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_yxyx",
+   "expected": "You are a precise object detector. Find every distinct instance of each of the following labels in the image:\n- \"cap\": the capsule on the neck, not the neck\n- \"front label\"\n- \"barcode\"\n\nOnly include instances that are clearly visible. If there are none, return an empty list.\n\nReturn ONLY a JSON object (no prose, no markdown) of the form {\"detections\": [{\"label\": <label>, \"box\": [x1, y1, x2, y2], \"confidence\": <number between 0 and 1>}]}, where \"label\" is EXACTLY one of \"cap\", \"front label\", \"barcode\" — do not invent labels.\nCoordinates are [ymin, xmin, ymax, xmax], integers normalized to 0..1000 regardless of the image's pixel size.\n[x1,y1] is the top-left corner and [x2,y2] the bottom-right; the origin (0,0) is the top-left of the image. Each box must enclose the ENTIRE object — from its topmost to bottommost and leftmost to rightmost visible pixel — without cropping any part."
+  },
+  {
+   "mode": "prompt",
+   "prompt": "  every screw head \n",
+   "coord_format": "grid_yxyx",
+   "expected": "You are a precise object detector. Find every distinct instance of what the user asks for:\nevery screw head\n\nOnly include instances that are clearly visible. If there are none, return an empty list.\n\nReturn ONLY a JSON object (no prose, no markdown) of the form {\"detections\": [{\"label\": <short label>, \"box\": [x1, y1, x2, y2], \"confidence\": <number between 0 and 1>}]}, where \"label\" names what you found in a word or two.\nCoordinates are [ymin, xmin, ymax, xmax], integers normalized to 0..1000 regardless of the image's pixel size.\n[x1,y1] is the top-left corner and [x2,y2] the bottom-right; the origin (0,0) is the top-left of the image. Each box must enclose the ENTIRE object — from its topmost to bottommost and leftmost to rightmost visible pixel — without cropping any part."
+  }
+ ],
+ "schemas": [
+  {
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "expected": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "detections",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "detections"
+      ],
+      "properties": {
+       "detections": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "label",
+          "box",
+          "confidence"
+         ],
+         "properties": {
+          "label": {
+           "type": "string",
+           "enum": [
+            "cap",
+            "front label",
+            "barcode"
+           ]
+          },
+          "box": {
+           "type": "array",
+           "items": {
+            "type": "number"
+           }
+          },
+          "confidence": {
+           "type": "number"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "tags": [],
+   "expected": {
+    "type": "json_schema",
+    "json_schema": {
+     "name": "detections",
+     "strict": true,
+     "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "detections"
+      ],
+      "properties": {
+       "detections": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "label",
+          "box",
+          "confidence"
+         ],
+         "properties": {
+          "label": {
+           "type": "string"
+          },
+          "box": {
+           "type": "array",
+           "items": {
+            "type": "number"
+           }
+          },
+          "confidence": {
+           "type": "number"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ ],
+ "responses": [
+  {
+   "name": "plain",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": [{\"label\": \"cap\", \"box\": [100, 200, 300, 400], \"confidence\": 0.9}, {\"label\": \"Barcode\", \"box\": [0, 0, 1000, 1000], \"confidence\": 0.5}]}",
+   "expected": [
+    [
+     [
+      0.1,
+      0.2,
+      0.19999999999999998,
+      0.2
+     ],
+     0.9,
+     "cap"
+    ],
+    [
+     [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     0.5,
+     "barcode"
+    ]
+   ]
+  },
+  {
+   "name": "yxyx",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_yxyx",
+   "text": "{\"detections\": [{\"label\": \"cap\", \"box\": [200, 100, 400, 300], \"confidence\": 0.8}]}",
+   "expected": [
+    [
+     [
+      0.1,
+      0.2,
+      0.19999999999999998,
+      0.2
+     ],
+     0.8,
+     "cap"
+    ]
+   ]
+  },
+  {
+   "name": "fenced",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "Here you go:\n```json\n{\"detections\": [{\"label\": \"front label\", \"box\": [10, 20, 30, 40], \"confidence\": 0.7}]}\n```",
+   "expected": [
+    [
+     [
+      0.01,
+      0.02,
+      0.019999999999999997,
+      0.02
+     ],
+     0.7,
+     "front label"
+    ]
+   ]
+  },
+  {
+   "name": "prose_wrapped",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "Sure! {\"detections\": [{\"label\": \"cap\", \"box\": [500, 500, 600, 700], \"confidence\": 1}]} Done.",
+   "expected": [
+    [
+     [
+      0.5,
+      0.5,
+      0.09999999999999998,
+      0.19999999999999996
+     ],
+     1.0,
+     "cap"
+    ]
+   ]
+  },
+  {
+   "name": "clamp_and_swap",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": [{\"label\": \"cap\", \"box\": [1200, 900, -50, 100], \"confidence\": 3}]}",
+   "expected": [
+    [
+     [
+      0.0,
+      0.1,
+      1.0,
+      0.8
+     ],
+     1.0,
+     "cap"
+    ]
+   ]
+  },
+  {
+   "name": "unknown_label_dropped",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": [{\"label\": \"bottle\", \"box\": [1, 2, 3, 4], \"confidence\": 0.9}, {\"label\": \"cap\", \"box\": [1, 2, 3, 4], \"confidence\": 0.9}]}",
+   "expected": [
+    [
+     [
+      0.001,
+      0.002,
+      0.002,
+      0.002
+     ],
+     0.9,
+     "cap"
+    ]
+   ]
+  },
+  {
+   "name": "single_tag_attribution",
+   "tags": [
+    {
+     "id": "hole",
+     "name": "hole"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": [{\"label\": \"screw\", \"box\": [100, 100, 200, 200], \"confidence\": 0.6}]}",
+   "expected": [
+    [
+     [
+      0.1,
+      0.1,
+      0.1,
+      0.1
+     ],
+     0.6,
+     "hole"
+    ]
+   ]
+  },
+  {
+   "name": "bad_geometry_dropped",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": [{\"label\": \"cap\", \"box\": [1, 2, 3]}, {\"label\": \"cap\", \"box\": [5, 5, 5, 9]}, {\"label\": \"cap\", \"box\": [\"a\", 1, 2, 3]}, \"junk\", {\"label\": \"cap\", \"bbox_2d\": [0, 0, 500, 500]}]}",
+   "expected": [
+    [
+     [
+      0.0,
+      0.0,
+      0.5,
+      0.5
+     ],
+     1.0,
+     "cap"
+    ]
+   ]
+  },
+  {
+   "name": "missing_or_bad_confidence",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": [{\"label\": \"cap\", \"box\": [0, 0, 100, 100]}, {\"label\": \"cap\", \"box\": [0, 0, 100, 100], \"confidence\": \"high\"}]}",
+   "expected": [
+    [
+     [
+      0.0,
+      0.0,
+      0.1,
+      0.1
+     ],
+     1.0,
+     "cap"
+    ],
+    [
+     [
+      0.0,
+      0.0,
+      0.1,
+      0.1
+     ],
+     1.0,
+     "cap"
+    ]
+   ]
+  },
+  {
+   "name": "objects_key_and_bare_list",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"objects\": [{\"tag\": \"cap\", \"box\": [0, 0, 100, 100], \"score\": 0.4}]}",
+   "expected": [
+    [
+     [
+      0.0,
+      0.0,
+      0.1,
+      0.1
+     ],
+     0.4,
+     "cap"
+    ]
+   ]
+  },
+  {
+   "name": "bare_list",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "[{\"label\": \"cap\", \"box\": [0, 0, 100, 100], \"confidence\": 0.4}]",
+   "expected": [
+    [
+     [
+      0.0,
+      0.0,
+      0.1,
+      0.1
+     ],
+     0.4,
+     "cap"
+    ]
+   ]
+  },
+  {
+   "name": "empty",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": []}",
+   "expected": []
+  },
+  {
+   "name": "free_prompt_labels",
+   "tags": [],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": [{\"label\": \"Screw head\", \"box\": [100, 100, 200, 200], \"confidence\": 0.6}, {\"label\": \"\", \"box\": [300, 300, 400, 400], \"confidence\": 0.6}]}",
+   "expected": [
+    [
+     [
+      0.1,
+      0.1,
+      0.1,
+      0.1
+     ],
+     0.6,
+     "Screw head"
+    ],
+    [
+     [
+      0.3,
+      0.3,
+      0.10000000000000003,
+      0.10000000000000003
+     ],
+     0.6,
+     "object"
+    ]
+   ]
+  },
+  {
+   "name": "not_json",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"detections\": [{\"label\": \"cap\", \"box\": [1, 2",
+   "error": "Model response was not valid JSON"
+  },
+  {
+   "name": "no_array",
+   "tags": [
+    {
+     "id": "cap",
+     "name": "cap",
+     "description": "the capsule on the neck, not the neck"
+    },
+    {
+     "id": "front label",
+     "name": "front label",
+     "description": ""
+    },
+    {
+     "id": "barcode",
+     "name": "barcode"
+    }
+   ],
+   "coord_format": "grid_xyxy",
+   "text": "{\"foo\": 1}",
+   "error": "No detections array in response; keys were ['foo']"
+  }
+ ]
+}

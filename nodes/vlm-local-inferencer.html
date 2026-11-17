@@ -1,0 +1,418 @@
+<script src="resources/@rosepetal/node-red-contrib-vlm-local/debug-image-canvas.js"></script>
+
+<script type="text/javascript">
+(function () {
+    var DEFAULT_IMAGE_WIDTH = 160;
+    var GB = function (mb) { return (mb / 1024).toFixed(1) + ' GB'; };
+
+    RED.nodes.registerType('vlm-local-inferencer', {
+        category: 'Rosepetal',
+        color: '#a6bbcf',
+        defaults: {
+            name: { value: '' },
+            model: { value: '', required: true },
+            image: { value: 'payload' },
+            imageType: { value: 'msg' },
+            mode: { value: 'prompt' },
+            prompt: { value: '' },
+            promptType: { value: 'str' },
+            tags: { value: '' },
+            tagsType: { value: 'list' },
+            parameters: { value: '{}' },
+            parametersType: { value: 'json' },
+            output: { value: 'inference' },
+            timeoutMs: { value: 120000, validate: RED.validators.number() },
+            releaseVram: { value: 'never' },
+            idleSeconds: { value: 60, validate: function (v) { return this.releaseVram !== 'idle' || v >= 1; } },
+            debugShowImage: { value: false },
+            debugInterval: { value: 1, validate: function (v) { return !this.debugShowImage || v > 0; } },
+            debugWidth: { value: DEFAULT_IMAGE_WIDTH, validate: function (v) { return !this.debugShowImage || v > 0; } },
+            debugBoxThickness: { value: 2, validate: function (v) { return !this.debugShowImage || (v >= 1 && v <= 10); } },
+            debugFontSize: { value: 0.5, validate: function (v) { return !this.debugShowImage || (v >= 0.3 && v <= 2); } }
+        },
+        inputs: 1,
+        outputs: 1,
+        outputLabels: ['inference'],
+        icon: 'font-awesome/fa-microchip',
+        label: function () { return this.name || 'VLM local'; },
+        paletteLabel: 'VLM local',
+        oneditprepare: function () {
+            var node = this;
+            var info = null;
+
+            $('#node-input-image').typedInput({ default: 'msg', types: ['msg', 'flow', 'global'], typeField: $('#node-input-imageType') });
+            $('#node-input-prompt').typedInput({ default: 'str', types: ['str', 'msg', 'flow', 'global'], typeField: $('#node-input-promptType') });
+            $('#node-input-tags').typedInput({
+                default: 'list',
+                types: [{ value: 'list', label: 'list', icon: 'fa fa-list', hasValue: false }, 'json', 'msg', 'flow', 'global'],
+                typeField: $('#node-input-tagsType')
+            });
+            $('#node-input-output').typedInput({ type: 'msg', types: ['msg'] });
+            $('#node-input-parameters').typedInput({ default: 'json', types: ['json', 'msg', 'flow', 'global'], typeField: $('#node-input-parametersType') });
+            buildTagList(node);
+            buildFindBy(node);
+
+            // ---- Model list and the VRAM line ----
+            function modelLabel(m) {
+                var state = m.installed ? 'installed'
+                    : m.missingBytes ? GB(m.missingBytes / 1024 / 1024) + ' to download'
+                    : 'on disk, verified on first deploy';
+                return m.name + ' · ≈' + GB(m.vramMb) + ' VRAM · ' + state;
+            }
+
+            function vramLine() {
+                var $line = $('#vlm-local-vram');
+                var m = info && info.models.filter(function (x) { return x.id === $('#node-input-model').val(); })[0];
+                if (!m) { $line.text(''); return; }
+                var license = m.license ? ' · License: ' + m.license.id : '';
+                if (!info.gpu) {
+                    $line.css('color', '#c00').text('No NVIDIA GPU found on this device: this node needs one.' + license);
+                    return;
+                }
+                // This node's own server, if running, is already in "used": count it as free for itself.
+                var others = info.servers.filter(function (s) { return s.nodeId !== node.id; });
+                var own = info.servers.filter(function (s) { return s.nodeId === node.id; })[0];
+                var free = info.gpu.freeMB + (own ? own.vramMb : 0);
+                var text = 'Needs ≈' + GB(m.vramMb) + ' · GPU: ' + info.gpu.name + ', ' + GB(info.gpu.totalMB)
+                    + ' (' + GB(free) + ' free)';
+                if ($('#node-input-releaseVram').val() !== 'never') text += ' · ≈0.1 GB while idle';
+                if (others.length) {
+                    var sum = others.reduce(function (a, s) { return a + s.vramMb; }, 0);
+                    text += ' · ' + others.length + ' other VLM local node(s) use up to ≈' + GB(sum);
+                }
+                $line.css('color', m.vramMb > free ? '#c00' : '#888').text(text + license);
+            }
+
+            $.getJSON('vlm-local-inferencer/info').done(function (data) {
+                info = data;
+                var $model = $('#node-input-model').empty();
+                data.models.forEach(function (m) {
+                    // Deprecated models stay selectable only for the node already using them.
+                    if (m.deprecated && m.id !== node.model) return;
+                    $model.append($('<option>').val(m.id).text(modelLabel(m) + (m.deprecated ? ' (deprecated)' : '')));
+                });
+                $model.val(node.model || (data.models[0] && data.models[0].id));
+                vramLine();
+            }).fail(function (xhr) {
+                var reason = (xhr.responseJSON && xhr.responseJSON.error) || 'request failed';
+                $('#vlm-local-vram').css('color', '#c00').text('Cannot read the model catalog: ' + reason);
+                if (node.model) $('#node-input-model').append($('<option>').val(node.model).text(node.model));
+            });
+            $('#node-input-model').on('change', vramLine);
+
+            // ---- Release VRAM ----
+            var applyRelease = function () {
+                $('#vlm-local-idle-row').toggle($('#node-input-releaseVram').val() === 'idle');
+                vramLine();
+            };
+            $('#node-input-releaseVram').on('change', applyRelease);
+            applyRelease();
+
+            // ---- Debug image ----
+            var applyDebug = function () {
+                $('.vlm-local-debug-detail').toggle($('#node-input-debugShowImage').is(':checked'));
+            };
+            $('#node-input-debugShowImage').on('change', applyDebug);
+            applyDebug();
+        },
+        oneditsave: function () {
+            if ($('#node-input-tagsType').val() === 'list') syncTagList();
+        }
+    });
+
+    // ---- Find by: prompt or tags, never both (only the chosen one is read) ----
+    function buildFindBy(node) {
+        $('#node-input-mode').val(node.mode || 'prompt');
+        var apply = function () {
+            var byPrompt = $('#node-input-mode').val() === 'prompt';
+            $('#vlm-local-prompt-row').toggle(byPrompt);
+            $('#vlm-local-tags-row').toggle(!byPrompt);
+            $('#node-input-tags').trigger('change');
+            if (byPrompt) { $('#vlm-local-tags-list-row, #vlm-local-tags-hint-row').hide(); }
+        };
+        $('#node-input-mode').on('change', apply);
+        apply();
+    }
+
+    // ---- Tags: a row per tag, stored as the same JSON the `json` type holds ----
+    // Copied from vision-platform's vlm-online-inferencer so the two panels behave alike.
+    var TAG_NAME = 'vlm-local-tag-name';
+    var TAG_DESC = 'vlm-local-tag-desc';
+
+    function readTagList() {
+        var tags = [];
+        $('#vlm-local-tags-list').editableList('items').each(function () {
+            var $row = $(this);
+            var name = String($row.find('.' + TAG_NAME).val() || '').trim();
+            if (!name) return;
+            var description = String($row.find('.' + TAG_DESC).val() || '').trim();
+            var tag = { name: name };
+            if (description) tag.description = description;
+            var id = $row.data('tagId');
+            if (id && id !== name) tag.id = id;
+            tags.push(tag);
+        });
+        return tags;
+    }
+
+    function syncTagList() {
+        var tags = readTagList();
+        $('#node-input-tags').typedInput('value', tags.length ? JSON.stringify(tags, null, 2) : '');
+    }
+
+    function storedTags(value) {
+        if (!value) return [];
+        var parsed = value;
+        if (typeof parsed === 'string') {
+            try { parsed = JSON.parse(parsed); } catch (err) {
+                return value.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+                    .map(function (name) { return { name: name }; });
+            }
+        }
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map(function (e) {
+            if (e && typeof e === 'object') {
+                return { name: String(e.name || e.tag || '').trim(), description: String(e.description || '').trim(), id: e.id ? String(e.id) : '' };
+            }
+            return { name: String(e).trim(), description: '', id: '' };
+        }).filter(function (t) { return t.name; });
+    }
+
+    function renderTagRows(tags) {
+        $('#vlm-local-tags-list').editableList('empty');
+        tags.forEach(function (tag) { $('#vlm-local-tags-list').editableList('addItem', tag); });
+    }
+
+    function buildTagList(node) {
+        $('#vlm-local-tags-list').editableList({
+            addButton: 'add tag',
+            removable: true,
+            header: $('<div>')
+                .append($('<div>', { text: 'Name', css: { width: '36%', marginRight: '2%', display: 'inline-block' } }))
+                .append($('<div>', { text: 'Description (optional)', css: { width: '60%', display: 'inline-block' } })),
+            addItem: function (row, index, data) {
+                row.css({ overflow: 'hidden', whiteSpace: 'nowrap' });
+                if (data.id) row.data('tagId', data.id);
+                $('<input/>', { class: TAG_NAME, type: 'text', placeholder: 'cap' })
+                    .css({ width: '36%', marginRight: '2%' }).val(data.name || '')
+                    .appendTo(row).on('change keyup paste', syncTagList);
+                $('<input/>', { class: TAG_DESC, type: 'text', placeholder: 'the capsule on the neck, not the neck' })
+                    .css({ width: '60%' }).val(data.description || '')
+                    .appendTo(row).on('change keyup paste', syncTagList);
+            },
+            removeItem: syncTagList
+        });
+        $('#vlm-local-tags-list').closest('.red-ui-editableList').css({ display: 'inline-block', width: '70%', verticalAlign: 'top' });
+        renderTagRows(storedTags(node.tags));
+
+        var applyMode = function () {
+            if ($('#node-input-mode').val() === 'prompt') {
+                $('#vlm-local-tags-list-row, #vlm-local-tags-hint-row').hide();
+                return;
+            }
+            var isList = $('#node-input-tagsType').val() === 'list';
+            $('#vlm-local-tags-list-row').toggle(isList);
+            $('#vlm-local-tags-hint-row').toggle(!isList);
+        };
+        // `list` and `json` are two editors for one value: carry it across a switch.
+        var previousType = $('#node-input-tagsType').val();
+        var jsonText = previousType === 'json' ? $('#node-input-tags').typedInput('value') : '';
+        var carrying = false;
+        $('#node-input-tags').on('change', function () {
+            if (carrying) return;
+            var type = $('#node-input-tagsType').val();
+            if (type === previousType) {
+                if (type === 'json') jsonText = $('#node-input-tags').typedInput('value');
+            } else {
+                carrying = true;
+                if (previousType === 'list' && type === 'json') {
+                    var tags = readTagList();
+                    jsonText = tags.length ? JSON.stringify(tags, null, 2) : '';
+                    $('#node-input-tags').typedInput('value', jsonText);
+                } else if (previousType === 'json' && type === 'list') {
+                    renderTagRows(storedTags(jsonText));
+                    syncTagList();
+                }
+                carrying = false;
+                previousType = type;
+            }
+            applyMode();
+        });
+        applyMode();
+    }
+
+    // Debug image under the node; the handler is shared (resources/debug-image-canvas.js).
+    var registry = window.RosepetalDebugImageCanvas || (window.RosepetalDebugImageCanvas = { pending: [] });
+    var options = { topic: 'vlm-local-debug-image', prefix: 'vlm-local', defaultWidth: DEFAULT_IMAGE_WIDTH };
+    if (registry.attach) { registry.attach(options); } else { registry.pending.push(options); }
+})();
+</script>
+
+<script type="text/html" data-template-name="vlm-local-inferencer">
+    <div class="form-row" style="min-width:540px;">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-model"><i class="fa fa-cube"></i> Model</label>
+        <select id="node-input-model" style="width:70%"></select>
+    </div>
+    <div class="form-row" style="margin-top:-8px;">
+        <label>&nbsp;</label><span id="vlm-local-vram" style="color:#888; display:inline-block; width:70%;">loading models…</span>
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-releaseVram"><i class="fa fa-moon-o"></i> VRAM</label>
+        <select id="node-input-releaseVram" style="width:70%">
+            <option value="never">Keep the model loaded</option>
+            <option value="after">Release after each inference</option>
+            <option value="idle">Release after N seconds without use</option>
+        </select>
+    </div>
+    <div class="form-row" id="vlm-local-idle-row">
+        <label for="node-input-idleSeconds">&nbsp;</label>
+        <input type="number" id="node-input-idleSeconds" min="1" step="1" style="width:80px"> seconds
+    </div>
+
+    <hr>
+
+    <div class="form-row">
+        <label for="node-input-image"><i class="fa fa-image"></i> Image</label>
+        <input type="text" id="node-input-image" style="width:70%">
+        <input type="hidden" id="node-input-imageType">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-mode"><i class="fa fa-search"></i> Find by</label>
+        <select id="node-input-mode" style="width:70%">
+            <option value="prompt">Prompt — the model names what it finds</option>
+            <option value="tags">Tags — a fixed list of labels</option>
+        </select>
+    </div>
+    <div class="form-row" id="vlm-local-prompt-row">
+        <label for="node-input-prompt"><i class="fa fa-comment"></i> Prompt</label>
+        <input type="text" id="node-input-prompt" style="width:70%">
+        <input type="hidden" id="node-input-promptType">
+    </div>
+    <div class="form-row" id="vlm-local-tags-row">
+        <label for="node-input-tags"><i class="fa fa-tags"></i> Tags</label>
+        <input type="text" id="node-input-tags" style="width:70%">
+        <input type="hidden" id="node-input-tagsType">
+    </div>
+    <div class="form-row" id="vlm-local-tags-list-row">
+        <label>&nbsp;</label>
+        <ol id="vlm-local-tags-list"></ol>
+    </div>
+    <div class="form-row" style="margin-top:-8px;" id="vlm-local-tags-hint-row">
+        <label>&nbsp;</label><span style="color:#888;">Example: <code>[{"name": "cap", "description": "..."}]</code>.</span>
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-output"><i class="fa fa-sign-out"></i> Output</label>
+        <input type="text" id="node-input-output" style="width:70%" placeholder="inference">
+    </div>
+    <div class="form-row">
+        <label for="node-input-parameters"><i class="fa fa-sliders"></i> Parameters</label>
+        <input type="text" id="node-input-parameters" style="width:70%">
+        <input type="hidden" id="node-input-parametersType">
+    </div>
+    <div class="form-row">
+        <label for="node-input-timeoutMs"><i class="fa fa-clock-o"></i> Timeout</label>
+        <input type="number" id="node-input-timeoutMs" style="width:30%"> ms
+    </div>
+
+    <hr>
+
+    <div class="form-row">
+        <label for="node-input-debugShowImage"><i class="fa fa-image"></i> Debug</label>
+        <input type="checkbox" id="node-input-debugShowImage" style="width:auto; vertical-align:top;">
+        <span style="color:#888;">draw the boxes under the node</span>
+    </div>
+    <div class="form-row vlm-local-debug-detail">
+        <label for="node-input-debugInterval"><i class="fa fa-list-ol"></i> Interval</label>
+        <input type="number" id="node-input-debugInterval" min="1" step="1" style="width:80px"> one frame in N
+    </div>
+    <div class="form-row vlm-local-debug-detail">
+        <label for="node-input-debugWidth"><i class="fa fa-arrows-h"></i> Width</label>
+        <input type="number" id="node-input-debugWidth" min="1" step="1" style="width:80px"> px
+    </div>
+    <div class="form-row vlm-local-debug-detail">
+        <label for="node-input-debugBoxThickness"><i class="fa fa-pencil"></i> Box thickness</label>
+        <input type="number" id="node-input-debugBoxThickness" min="1" max="10" step="1" style="width:80px">
+    </div>
+    <div class="form-row vlm-local-debug-detail">
+        <label for="node-input-debugFontSize"><i class="fa fa-font"></i> Font size</label>
+        <input type="number" id="node-input-debugFontSize" min="0.3" max="2" step="0.1" style="width:80px">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="vlm-local-inferencer">
+    <p>Finds objects in an image with an open vision-language model running <b>on this
+    device</b>. Say what to look for — a prompt, or a list of tags — and it returns a box
+    and a confidence for each thing it found.</p>
+
+    <p>The local twin of <code>vlm-online-inferencer</code>: same inputs, same output,
+    entry for entry, so a flow can swap one for the other. No cloud, no credentials:
+    the model runs in a llama.cpp container this node starts, on the GPU.</p>
+
+    <h3>First deploy</h3>
+    <p>The first time a model is used, the node downloads the llama.cpp runtime image
+    (≈2.6 GB) and the model weights from Hugging Face (≈3.4–6.6 GB) into
+    <code>/opt/storage/models/vlm/&lt;model&gt;/</code>, checking every file's SHA-256.
+    The status shows the progress. After that, deploys and restarts download nothing.
+    Messages that arrive before the model is ready are rejected with "Not ready", not queued.</p>
+    <p>Without network: copy the files into that directory and <code>docker load</code>
+    the runtime image beforehand; the node verifies the files and starts.</p>
+
+    <h3>Input</h3>
+    <dl class="message-properties">
+        <dt>payload <span class="property-type">buffer | object</span></dt>
+        <dd>The image, by default: an encoded JPEG/PNG/WebP, or a rosepetal raw bitmap
+        <code>{data, width, height, channels, colorSpace}</code>. <b>Image</b> names the property.</dd>
+    </dl>
+    <p><b>Find by</b> picks <b>Prompt</b> (free description; the model names what it finds)
+    or <b>Tags</b> (a closed list; the model must answer with those names). Only the chosen
+    one is read. Tags take an optional <code>description</code>, which becomes that tag's
+    line in the prompt — it matters: measured on client datasets, opaque names such as
+    <code>golpe</code> or <code>stacker</code> without a description find nothing.</p>
+    <pre>[{"name": "cap", "description": "the aluminium capsule on the neck"}, {"name": "barcode"}]</pre>
+
+    <h3>Output</h3>
+    <dl class="message-properties">
+        <dt>inference <span class="property-type">array</span></dt>
+        <dd>One entry per detection: <code>tag</code>, <code>confidence</code> and every
+        coordinate format — <code>raw_boxes</code>, <code>4points</code>, <code>xywhr</code>,
+        <code>cwh</code>, <code>2points</code> — normalized 0–1. The confidence is what the
+        model writes (usually 0.95–0.99), not a calibrated score.</dd>
+        <dt>performance <span class="property-type">object</span></dt>
+        <dd>Keyed by the node's name: <code>encodeMs</code>, <code>requestMs</code>,
+        <code>inferenceMs</code> (the server's own prompt + generation time),
+        <code>wakeMs</code> (time spent reloading a released model, else 0) and <code>totalMs</code>.</dd>
+    </dl>
+
+    <h3>Speed</h3>
+    <p>Seconds per image, growing with the number of objects (≈30 tokens per box): 1–2 s
+    with a couple of objects, ≈15 s with 15, ≈30 s with 30 on an RTX 3060. For inspecting a
+    frame when something happens, not for every frame of a fast line. The default
+    <b>Timeout</b> is 120 s.</p>
+
+    <h3>VRAM</h3>
+    <p><b>Keep the model loaded</b> is the default. <b>Release after each inference</b> and
+    <b>Release after N seconds without use</b> unload it from the GPU (≈130 MB stay), and the next message
+    loads it again, which adds ≈3 s. The status turns grey, "Sleeping (VRAM released)",
+    once it has. The ≈3 s assume the weights are still in the OS file cache; after a
+    reboot the first wake reads them from disk.</p>
+
+    <h3>Parameters</h3>
+    <p>Optional sampling overrides as JSON: <code>max_tokens</code> (default 4096 —
+    raise it for crowded frames), <code>temperature</code> (default 0), <code>top_p</code>,
+    <code>top_k</code>, <code>seed</code>, <code>stop</code>, <code>presence_penalty</code>,
+    <code>frequency_penalty</code>, <code>repeat_penalty</code>. Anything else is an error.</p>
+
+    <h3>Models</h3>
+    <p>The list comes from the catalog in this package. A device can add or override
+    entries in <code>/opt/storage/models/vlm/catalog.json</code> (same format, matched
+    by <code>id</code>) without a new release. The line under the model compares the
+    measured VRAM it needs with the GPU's free memory, and turns red if it does not fit.</p>
+</script>

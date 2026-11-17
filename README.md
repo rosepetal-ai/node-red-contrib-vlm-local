@@ -3,35 +3,53 @@
 Node-RED node that runs an open vision-language model on the device itself and
 turns an image plus a prompt, or a list of tags, into detections.
 
-> **Status: work in progress.** The node itself is not written yet; this
-> repository holds the shared code it will build on.
+`vlm-local-inferencer` is the local twin of vision-platform's
+`vlm-online-inferencer`: same inputs, same `msg.inference` array entry for entry
+(`tag`, `confidence`, `raw_boxes`, `2points`, `4points`, `xywhr`, `cwh`, all 0–1),
+so a flow can swap one for the other.
 
-## What it will do
+- **Offline once installed.** The runtime is the public
+  [llama.cpp](https://github.com/ggml-org/llama.cpp) server image, pinned by
+  digest; the weights come from public Hugging Face repos at a pinned commit,
+  SHA-256 verified. No credentials on the device.
+- **One container per node**, `nodered-vlm-local-<node id>`, on a
+  Docker-assigned `127.0.0.1` port, removed when the node is deleted.
+- **VRAM release**: keep the model loaded, or release it after each inference /
+  after N idle seconds (llama-server `--sleep-idle-seconds`; ≈3 s to wake).
+- **Models are data**: `catalog.json` lists each model's files, coordinate
+  format, parameters and measured VRAM. A device can add or override entries in
+  `/opt/storage/models/vlm/catalog.json` without a release.
 
-- `vlm-local-inferencer`: image + prompt or tags → a flat array of detections,
-  with coordinates normalized 0–1 in every box format (`raw_boxes`, `xywhr`,
-  `cwh`, `4points`, `2points`).
-- Fully offline once set up: the runtime is the public
-  [llama.cpp](https://github.com/ggml-org/llama.cpp) server image pinned by
-  digest, and the weights are downloaded from public Hugging Face repositories
-  at a pinned revision, with SHA-256 verification. No credentials on the device.
-- Models are data: a catalog JSON lists each model's files, coordinate format,
-  parameters and measured VRAM. A device can add its own entries without a
-  release.
+## Requirements
+
+An NVIDIA GPU available to Docker, the Docker socket, and `/opt/storage` mounted
+at the same path in Node-RED and on the host (as on Rosepetal controllers, where
+Node-RED runs with `network_mode: host`). Weights go to
+`/opt/storage/models/vlm/<model id>/` (override with `VLM_LOCAL_MODELS_DIR`).
+
+## Models
+
+| id | VRAM (measured, RTX 3060) | Notes |
+|---|---|---|
+| `qwen3.5-9b-q4` | 6970 MB | Default. F1 .55 / IoU .87 on 10 client datasets |
+| `qwen3.5-4b-q4` | 4390 MB | Smaller GPUs. F1 .46 / IoU .87 |
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `catalog.json` | The offered models: pinned files (HF commit + SHA-256), coordinate format, parameters, measured VRAM. The first entry is the default |
-| `lib/result-conversion.js` | `expandResultFormats`: every box format derived from whichever one a result has |
-| `lib/image-input.js` | `toJpegBase64`: encoded Buffer or raw bitmap → JPEG base64 |
-| `lib/debug-image.js` | `renderDebugImage`: the frame with the result drawn on it |
+| `nodes/vlm-local-inferencer.{js,html}` | The node and its edit panel |
+| `catalog.json` | The offered models; the first entry is the default |
+| `lib/catalog.js` | Packaged + device catalog, merged by id and validated |
+| `lib/weights.js` | Resumable HF downloads, SHA-256 verification, one download per model |
+| `lib/runtime.js` | The llama-server container: pull, start/reuse, health, removal |
+| `lib/llama.js` | One chat-completions request with the image and the JSON schema |
+| `lib/detect.js` | Prompt, schema and parser, ported from the production labeler |
+| `lib/gpu.js` | GPU name and memory from `nvidia-smi` |
+| `lib/result-conversion.js`, `lib/image-input.js`, `lib/debug-image.js`, `resources/debug-image-canvas.js` | Copied unchanged from `@rosepetal/node-red-contrib-vision-platform` v1.4.16; keep in sync by copying |
 
-These three files are copied unchanged from
-`@rosepetal/node-red-contrib-vision-platform` v1.4.16, so this node's output
-matches the other Rosepetal inference nodes. Keep them in sync by copying, not
-by editing them here.
+`test/fixtures/labeler.json` is generated from the production Python labeler;
+`test/detect.test.js` replays it so the port cannot drift.
 
 ## Development
 
