@@ -12,7 +12,7 @@ so a flow can swap one for the other.
   [llama.cpp](https://github.com/ggml-org/llama.cpp) server image, pinned by
   digest; the weights come from public Hugging Face repos at a pinned commit,
   SHA-256 verified. No credentials on the device.
-- **One container per node**, `nodered-vlm-local-<node id>`, on a
+- **One container per node**, `nodered-vlm-local-<Node-RED port>-<node id>`, on a
   Docker-assigned `127.0.0.1` port, removed when the node is deleted.
 - **Unload**: keep the model loaded, or stop its container after each inference /
   after N idle seconds (N from the panel, `msg`, `flow` or `global`); ≈3 s to load again.
@@ -20,6 +20,24 @@ so a flow can swap one for the other.
 - **Models are data**: `catalog.json` lists each model's files, coordinate
   format, parameters and measured VRAM. A device can add or override entries in
   `/opt/storage/models/vlm/catalog.json` without a release.
+
+## Installation
+
+```bash
+cd ~/.node-red
+npm install @rosepetal/node-red-contrib-vlm-local
+```
+
+Or search `@rosepetal/node-red-contrib-vlm-local` in the Node-RED Palette Manager.
+
+## Documentation
+
+| Page | Contents |
+|------|----------|
+| [Overview](docs/index.md) | Installation, requirements, the models of the catalog, what the node downloads and where |
+| [vlm-local-inferencer](docs/vlm-local-inferencer.md) | Reference of the node: configuration, prompt or tags, unload, input and output, status and errors, containers, the catalog format |
+
+The same pages are published at <https://docs.rosepetal.ai/flows/vlm-local>.
 
 ## Requirements
 
