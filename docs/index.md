@@ -35,7 +35,7 @@ The package is on the public npm registry. Installing it downloads no model: the
 - Docker, reached from Node-RED through the Docker socket
 - An NVIDIA GPU available to Docker: the node starts its container with every GPU of the device (what `docker run --gpus all` does) and loads the whole model on it. The editor reads the GPU's name and free memory with `nvidia-smi`; where Node-RED cannot run it, the edit dialog reports that there is no GPU
 - `/opt/storage` mounted at the same path in Node-RED and on the host, and Node-RED able to reach the host's `127.0.0.1`, as on Rosepetal controllers, where Node-RED runs with `network_mode: host`. The container mounts the weights directory by the path Node-RED sees, and listens on a `127.0.0.1` port of the host
-- On the first deploy of a model: access to `ghcr.io` and `huggingface.co`, to download the runtime image (about 2.6 GB, as the node's help gives it) and the model's files (see [Models](#models)), and the disk space to keep them. After that, deploys and restarts download nothing
+- On the first deploy of a model: access to `ghcr.io` and `huggingface.co`, and to the CDN hosts they redirect the downloads to, to download the runtime image (about 2.6 GB, as the node's help gives it) and the model's files (see [Models](#models)), and the disk space to keep them. After that, deploys and restarts download nothing
 
 ## Nodes
 
@@ -64,7 +64,7 @@ A device can add models, or replace these, in `/opt/storage/models/vlm/catalog.j
 ## Files and containers
 
 - **Runtime**: the public llama.cpp server image, `ghcr.io/ggml-org/llama.cpp:server-cuda-b12429`, pulled without credentials by its digest (`ghcr.io/ggml-org/llama.cpp@sha256:d68ec493…`) when Docker does not have it yet.
-- **Weights**: downloaded from the public Hugging Face repositories into `/opt/storage/models/vlm/<model id>/` (the environment variable `VLM_LOCAL_MODELS_DIR` changes the root). A download that is interrupted resumes where it stopped, a file is put in place only once its SHA-256 matches, and two nodes on the same model share one download. Files copied into that directory by hand are verified on the first deploy, so a device without network can be installed by copying them, with the runtime image already in Docker.
+- **Weights**: downloaded from the public Hugging Face repositories into `/opt/storage/models/vlm/<model id>/` (the environment variable `VLM_LOCAL_MODELS_DIR` changes the root). A download that is interrupted resumes where it stopped, a file is put in place only once its SHA-256 matches, and two nodes of the same Node-RED on the same model share one download. Files copied into that directory by hand are verified on the first deploy, so a device without network can be installed by copying them, with the runtime image already in Docker.
 - **Containers**: one per node and Node-RED instance, `nodered-vlm-local-<Node-RED port>-<node id>`, with the weights mounted read-only and the server on a `127.0.0.1` port that Docker assigns. A redeploy reuses it when neither the model nor its runtime has changed; deleting the node removes it.
 - **Unload**: the node can stop its container after each inference or after N seconds without use, which frees all of its VRAM; the next message starts it again, in about 3 seconds while the weights are still in the operating system's file cache.
 - **Deleting models**: the edit dialog shows which models are on the device and deletes the files of one, unless a node or a container still uses it. Nothing is deleted automatically.

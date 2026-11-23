@@ -49,7 +49,7 @@ An image takes seconds, more when it holds more objects (see [Speed](#speed)), s
 | **Tags** | empty | The labels the model must choose from (see [Tags](#tags)). Edited as rows (`list`), as JSON, or read from a `msg`, flow or global property |
 | **Output** | `inference` | `msg` property that receives the detections |
 | **Parameters** | `{}` | Sampling overrides for the request, as a JSON object or from a `msg`, flow or global property (see [Parameters](#parameters)) |
-| **Timeout** | `120000` | Milliseconds to wait for the model's answer to one image. Loading an unloaded model is not counted |
+| **Timeout** | `120000` | Milliseconds to wait for the model's answer to one image, counted from the request: it includes the time the image waits behind another one, since the container answers one at a time. Loading an unloaded model is not counted |
 | **Debug** | off | Draw the boxes on the image, under the node (see [Debug image](#debug-image)) |
 | **Interval** | `1` | With Debug: one message in N is drawn |
 | **Width** | `160` | With Debug: width of the image under the node, in pixels |
@@ -70,7 +70,7 @@ The editor counts 1 GB as 1024³ bytes, and 1 GB of VRAM as 1024 MB.
 
 A model marked `deprecated` in the catalog is listed, with *(deprecated)*, only on a node that already uses it.
 
-The trash button of a model whose files are on the device deletes its directory (weights, partial downloads and markers), after a confirmation. It is refused while a deployed node uses that model, while a container of that model exists (loaded or unloaded, of this or another Node-RED instance), or while its files are downloading: change or delete those nodes and deploy first. A node that uses a deleted model downloads it again on its next deploy. Nothing is ever deleted automatically.
+The trash button of a model whose files are on the device deletes its directory (weights, partial downloads and markers), after a confirmation. It is refused while a deployed node uses that model, while a container of that model exists (loaded or unloaded, of this or another Node-RED instance), or while this Node-RED is downloading its files: change or delete those nodes and deploy first. A node that uses a deleted model downloads it again on its next deploy. Nothing is ever deleted automatically.
 
 ### Prompt or tags
 
@@ -101,7 +101,7 @@ Optional sampling overrides, as a JSON object:
 | `temperature` | `0` |
 | `top_p`, `top_k`, `seed`, `stop`, `presence_penalty`, `frequency_penalty`, `repeat_penalty` | Not sent: llama-server's own |
 
-Any other key fails the message with `Unknown parameter(s) <keys>; allowed: …`. `reasoning` is not one of them: reasoning is a setting of the container, taken from the catalog. A value that is not an object, or a property that does not exist, sends the defaults.
+Any other key fails the message with `Unknown parameter(s) <keys>; allowed: …`. `reasoning` is not one of them: reasoning is a setting of the container, taken from the catalog. A value that is not an object, or a property that does not exist, sends the defaults. An array counts as an object: a non-empty one fails with `Unknown parameter(s) 0, …`.
 
 ### Unload
 
@@ -115,7 +115,7 @@ Stopping the container frees all of its VRAM, and the status turns grey: `Unload
 
 With **After N seconds without use**, N is read on every message, and the last message decides how long the model stays loaded after it. A missing or negative N, or one that is not a number, fails that message with `Unload after N seconds: N must be a number >= 0, got <value>`.
 
-The countdown also starts at deploy, as soon as the model is ready: with **After each inference**, the model is unloaded right after a deploy and the first message loads it. When N comes from `msg`, the model stays loaded after a deploy until the first message arrives; when it comes from a flow or global variable that is not set yet, the node warns and the model also stays loaded until then.
+Unless N's type is `msg`, the countdown also starts at deploy, as soon as the model is ready: with **After each inference**, the model is then unloaded right after a deploy and the first message loads it (N's type is kept when **Unload** changes, even while its field is hidden). When N comes from `msg`, the model stays loaded after a deploy until the first message arrives; when it comes from a flow or global variable that is not set yet, the node warns and the model also stays loaded until then.
 
 If the container cannot be stopped, the node warns `vlm-local: unload failed, model stays loaded: <reason>` and the model stays loaded.
 
@@ -180,7 +180,7 @@ Timings go to `msg.performance.<Name>` (`msg.performance.VLMLocal` when the node
 
 ### Speed
 
-The node's help gives these times, measured on an RTX 3060: seconds per image, growing with the number of objects (about 30 tokens per box): 1 to 2 s with a couple of objects, about 15 s with 15, about 30 s with 30. The default **Timeout**, 120 s, leaves room for that. The container answers one image at a time (llama-server runs with one slot).
+The node's help gives these times, on an RTX 3060: seconds per image, growing with the number of objects (about 30 tokens per box): 1 to 2 s with a couple of objects, about 15 s with 15, about 30 s with 30. The default **Timeout**, 120 s, leaves room for that. The container answers one image at a time (llama-server runs with one slot).
 
 ## Status and Errors
 
@@ -207,6 +207,7 @@ The node logs `vlm-local: <error>` and shows the error in its status. It does no
 | `No model selected` | **Model** is empty |
 | `Model '<id>' is not in the catalog.` | The model of the node is in no catalog of this device |
 | `Cannot read model catalog <file>: <reason>` | The packaged or the device catalog is not valid JSON |
+| `Catalog runtime must be pinned by @sha256 digest` | The `runtime` of the device catalog has no `@sha256:` digest |
 | `<file>: model '<id>': <what is wrong>` | A catalog entry does not pass the checks of the [catalog](#model-catalog) |
 | `Runtime not available (<reason>). Without network, load it with: docker load` | The runtime image is not in Docker and could not be pulled |
 | `HTTP <status> downloading <url>` | Hugging Face answered the request for a file with an error status |
@@ -233,7 +234,7 @@ A message that fails is not sent on: the error reaches the debug sidebar and any
 | `llama-server did not answer within <Timeout> ms` | No answer within **Timeout** |
 | `llama-server unreachable: <reason>`, `llama-server error <status>: <reason>` | The container could not be reached, or answered with an error |
 | `llama-server returned no text (finish_reason=<reason>)` | An empty answer |
-| `Model response was not valid JSON: <answer>`, `No detections array in response; keys were [<keys>]` | The answer is not a list of detections |
+| `Model response was not valid JSON: <answer>`, `No detections array in response; keys were [<keys>]`, `Unexpected JSON payload type: <type>` | The answer is not a list of detections |
 | A startup error of the container | An unloaded model could not be loaded again; the next message tries again |
 
 ## Containers and Files
@@ -241,7 +242,7 @@ A message that fails is not sent on: the error reaches the debug sidebar and any
 ### Runtime and weights
 
 - **Runtime**: the image named by the catalog (`runtime` of the model, or else of the catalog), pulled without credentials by its digest: `ghcr.io/ggml-org/llama.cpp@sha256:d68ec493…` for the packaged models. It is pulled only when Docker does not have it.
-- **Weights**: each model has two files, the model and its multimodal projector (`mmproj`). They are downloaded from `https://huggingface.co/<repo>/resolve/<revision>/<file>` into `/opt/storage/models/vlm/<model id>/` (`$VLM_LOCAL_MODELS_DIR/<model id>/` when that variable is set). A file is written as `<file>.part` and resumes from there when a download is interrupted; it gets its final name only when its size and SHA-256 match the catalog, and a `<file>.verified` marker that holds the hash, so later deploys do not hash it again. Two nodes on the same model share one download.
+- **Weights**: each model has two files, the model and its multimodal projector (`mmproj`). They are downloaded from `https://huggingface.co/<repo>/resolve/<revision>/<file>` into `/opt/storage/models/vlm/<model id>/` (`$VLM_LOCAL_MODELS_DIR/<model id>/` when that variable is set). A file is written as `<file>.part` and resumes from there when a download is interrupted; it gets its final name only when its size and SHA-256 match the catalog, and a `<file>.verified` marker that holds the hash, so later deploys do not hash it again. Two nodes of the same Node-RED on the same model share one download; two Node-RED instances of the device that download the same model at the same time would both write to the same `<file>.part`.
 - **Without network**: copy the two files, with the names of the catalog, into the model's directory. The first deploy verifies them (`Verifying <file>…`) and deletes a file whose hash does not match. The runtime image must already be in Docker; the node's help says to `docker load` it beforehand.
 
 ### Container
